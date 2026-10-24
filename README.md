@@ -2,7 +2,7 @@
 
 Jogo educativo de clicar sobre o espaço, feito para crianças de cerca de 4 anos. Todas as instruções são faladas em português.
 
-**Jogar:** https://tiodanilo.github.io/missao-sistema-solar./
+**Jogar:** https://tiodanilo.github.io/missao-sistema-solar/
 
 ## As 12 etapas
 
