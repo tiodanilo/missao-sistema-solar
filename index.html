@@ -235,6 +235,8 @@ button:focus-visible,input:focus-visible{outline:4px solid var(--sun);outline-of
 @media (min-width:700px){.dwarfs{grid-template-columns:repeat(4,minmax(0,1fr))}}
 .fact-body{flex:none;--pb:min(16vw,12vh,110px)}
 .opt .dwarf{width:calc(var(--pb) * 1.1)}
+/* voice picker */
+.voice-btn{font-family:var(--f-body);font-weight:900;font-size:clamp(.8rem,1.8vh,1rem);letter-spacing:.06em;color:var(--ink-soft);padding:8px 16px;border-radius:999px;border:1px dashed var(--panel-line);max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 /* home confirm */
 .ask{position:fixed;inset:0;z-index:40;display:grid;place-items:center;background:rgba(8,9,30,.75);padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
 .ask-card{background:var(--void-2);border:2px solid var(--panel-line);border-radius:28px;padding:24px 28px;text-align:center;display:flex;flex-direction:column;gap:12px;align-items:center}
@@ -351,12 +353,39 @@ let muted=false,timers=[];
 const later=(fn,ms)=>{const t=setTimeout(fn,ms);timers.push(t);return t};
 
 /* ---------- voice ---------- */
-let voice=null;
-function pickVoice(){try{const v=speechSynthesis.getVoices();voice=v.find(x=>/pt[-_]BR/i.test(x.lang))||v.find(x=>/^pt/i.test(x.lang))||null}catch(e){}}
-if('speechSynthesis' in window){pickVoice();try{speechSynthesis.onvoiceschanged=pickVoice}catch(e){}}
+let voice=null,voices=[];
+/* best Brazilian voices first; Portugal Portuguese only as a last resort */
+function rankVoice(v){
+  let sc=/pt[-_]BR/i.test(v.lang)?100:/^pt/i.test(v.lang)?20:-999;
+  if(/natural|neural|online|enhanced|premium|aprimorad/i.test(v.name))sc+=40;
+  if(/google/i.test(v.name))sc+=30;
+  if(/francisca|antonio|thalita|luciana|felipe|maria/i.test(v.name))sc+=10;
+  return sc;
+}
+function pickVoice(){try{
+  voices=speechSynthesis.getVoices().filter(v=>rankVoice(v)>0).sort((a,b)=>rankVoice(b)-rankVoice(a));
+  let saved='';try{saved=localStorage.getItem('missao-voz')||''}catch(e){}
+  voice=voices.find(v=>v.name===saved)||voices[0]||null;
+  const vb=document.getElementById('voiceBtn');if(vb)vb.textContent=voiceLabel();
+}catch(e){}}
+function voiceLabel(){
+  if(!('speechSynthesis' in window))return 'Sem voz neste aparelho';
+  if(!voice)return 'Sem voz em português';
+  return 'Voz: '+voice.name.replace(/microsoft|google|online|\(natural\)|-.*$|portuguese|português|\(brazil\)|\(brasil\)|do brasil/gi,'').trim();
+}
+if('speechSynthesis' in window){pickVoice();try{speechSynthesis.addEventListener('voiceschanged',pickVoice)}catch(e){try{speechSynthesis.onvoiceschanged=pickVoice}catch(_){}}}
+/* spoken spelling only: the screen keeps the normal words */
+const SPEAK=[
+  ['asteroides','asteróides'],['asteroide','asteróide'],
+  ['Haumea','Rauméia'],['Ceres','Céres'],['Plutão','Plutão'],
+  ['letra C','letra cê'],['Uhuu','Uhú'],['Iupi','Iupí'],['Oba','Ôba']
+];
+const SPEAK_RE=SPEAK.map(([w,r])=>[new RegExp('(^|[^\\p{L}])'+w+'(?![\\p{L}])','giu'),r]);
+function speakable(t){let o=' '+t;for(const [re,r] of SPEAK_RE)o=o.replace(re,(m,pre)=>pre+r);return o.trim()}
 function say(t){
   if(muted||!('speechSynthesis' in window))return;
-  try{speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(t);u.lang='pt-BR';if(voice)u.voice=voice;u.rate=.92;u.pitch=1.2;speechSynthesis.speak(u)}catch(e){}
+  try{if(!voice)pickVoice();speechSynthesis.cancel();
+    const u=new SpeechSynthesisUtterance(speakable(t));u.lang=voice?voice.lang:'pt-BR';if(voice)u.voice=voice;u.rate=.95;u.pitch=1.05;speechSynthesis.speak(u)}catch(e){}
 }
 let lastLine='';
 function tell(t){
@@ -503,7 +532,8 @@ const PHASES=[
     <h1 class="title">Missão Sistema Solar</h1>
     <div class="name-box" id="nameBox" aria-live="polite"></div>
     <div class="keys" id="keys">${L.map((c,i)=>`<button class="key" data-c="${c}" style="--k:${COLS[i%5]}">${c}</button>`).join('')}<button class="key key-del" id="del" aria-label="Apagar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M21 5H9l-6 7 6 7h12z"/><path d="M17 9l-6 6M11 9l6 6"/></svg></button></div>
-    <button class="big go-btn" id="ready" disabled>Pronto!</button></div>`;
+    <button class="big go-btn" id="ready" disabled>Pronto!</button>
+    <button class="voice-btn" id="voiceBtn" type="button"></button></div>`;
   const paint=()=>{
     $('#nameBox').innerHTML=nm?[...nm].map(c=>`<span>${c}</span>`).join('')+'<i class="caret"></i>':'<em>Seu nome aparece aqui</em>';
     const r=$('#ready');r.disabled=!nm;r.classList.toggle('pulse',!!nm)};
@@ -513,6 +543,11 @@ const PHASES=[
     if(b.id==='del'){if(!nm)return;nm=nm.slice(0,-1);tone(420,.12,'sine',.12);paint();return}
     if(nm.length>=12){sfx.oops();return}
     nm+=b.dataset.c;sfx.pop();say(LETTER[b.dataset.c]||b.dataset.c);burstAt(b,PARTY,8);paint()};
+  $('#voiceBtn').textContent=voiceLabel();
+  $('#voiceBtn').onclick=()=>{ctx();if(!voices.length){pickVoice();say('Olá!');return}
+    const i=(voices.indexOf(voice)+1)%voices.length;voice=voices[i];
+    try{localStorage.setItem('missao-voz',voice.name)}catch(e){}
+    $('#voiceBtn').textContent=voiceLabel();say('Olá! Vamos visitar os asteroides, Júpiter, Netuno e Haumea!')};
   $('#ready').onclick=()=>{if(!nm)return;state.name=nm.charAt(0)+nm.slice(1).toLowerCase();sfx.pop();newGame();go(1)};
 },
 /* 1 — suit */
